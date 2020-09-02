@@ -1,0 +1,1327 @@
+---
+title: "Tasas Municipales"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    collapsed: false
+    number_sections: false
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r importarArch, message=FALSE, warning=FALSE, include=FALSE}
+  library(readr)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(lubridate)
+  library(knitr)
+  library(kableExtra)
+  library(highcharter)
+  library(rjson)
+  library(plotly)
+  library(gganimate)
+  library(stringr)
+  library(leaflet)
+  library(leaflet.extras)
+  library(sf)
+  library(tmap)
+  library(googlesheets4)
+  library(readxl)
+  library(scales) #etiqueta dolar
+  library(extrafont) #tema elegante
+  library(DT)
+
+  sep.miles <- function(x){format(x,big.mark=".")}
+  
+ { # Create Base Theme
+   theme_elegante <- function(base_size = 10, base_family = "Raleway"){
+      color.background = "#FFFFFF" # Chart Background
+      color.grid.major = "#D9D9D9" # Chart Gridlines
+      color.axis.text = "#666666" # 
+      color.axis.title = "#666666" # 
+      color.title = "#666666"
+      color.subtitle = "#666666"
+      strip.background.color = '#9999CC'
+      
+      ret <- theme_bw(base_size=base_size) +
+        
+        # Set the entire chart region to a light gray color
+        theme(panel.background=element_rect(fill=color.background, color=color.background)) +
+        theme(plot.background=element_rect(fill=color.background, color=color.background)) +
+        theme(panel.border=element_rect(color=color.background)) +
+        
+        # Format the grid
+        theme(panel.grid.major=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(panel.grid.minor=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(axis.ticks=element_blank()) +
+        
+        # Format the legend, but hide by default
+        theme(legend.position="none") +
+        theme(legend.background = element_rect(fill=color.background)) +
+        theme(legend.text = element_text(size=base_size-3,color=color.axis.title, family = base_family)) +
+        
+        theme(strip.text.x = element_text(size=base_size,color=color.background, family = base_family)) +
+        theme(strip.text.y = element_text(size=base_size,color=color.background, family = base_family)) +
+        #theme(strip.background = element_rect(fill=strip.background.color, linetype="blank")) +
+        theme(strip.background = element_rect(fill = "grey70", colour = NA)) +
+        # theme(panel.border= element_rect(fill = NA, colour = "grey70", size = rel(1)))+
+        # Set title and axis labels, and format these and tick marks
+        theme(plot.title=element_text(color=color.title, 
+                                      size=20, 
+                                      vjust=1.25, 
+                                      family=base_family, 
+                                      hjust = 0.5)) +
+        
+        theme(plot.subtitle=element_text(color=color.subtitle, size=base_size+2, family = base_family,  hjust = 0.5))  +
+        
+        theme(axis.text.x=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(axis.text.y=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(text=element_text(size=base_size, color=color.axis.text, family = base_family)) +
+        
+        theme(axis.title.x=element_text(size=base_size+2,color=color.axis.title, vjust=0, family = base_family)) +
+        theme(axis.title.y=element_text(size=base_size+2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        theme(plot.caption=element_text(size=base_size-2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        
+        # Legend  
+        theme(legend.text=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.title=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.key=element_rect(colour = color.background, fill = color.background)) +
+        theme(legend.position="bottom", 
+              legend.box = "horizontal", 
+              legend.title = element_blank(),
+              legend.key.width = unit(.75, "cm"),
+              legend.key.height = unit(.75, "cm"),
+              legend.spacing.x = unit(.25, 'cm'),
+              legend.spacing.y = unit(.25, 'cm'),
+              legend.margin = margin(t=0, r=0, b=0, l=0, unit="cm")) +
+        
+        # Plot margins
+        theme(plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+      
+      ret
+    }
+ }  
+
+  ### DOLAR: extraido de datos abiertos BCRA
+
+  # Promedio mensual del tipo de cambio oficial
+  CAMBIO_DOLAR <- read_excel("THI/CAMBIO_DOLAR.xlsx")
+  CAMBIO_DOLAR$indice_tiempo <- gsub("-", "/", CAMBIO_DOLAR$indice_tiempo)
+  
+  CAMBIO_DOLAR$indice_tiempo <- as.Date(CAMBIO_DOLAR$indice_tiempo, "%Y/%m/%d")
+  CAMBIO_DOLAR$anio <- year(CAMBIO_DOLAR$indice_tiempo)
+  CAMBIO_DOLAR$mes <- month(CAMBIO_DOLAR$indice_tiempo)
+  
+  ##Datos del promedio mensual del cambio
+  cambio <- CAMBIO_DOLAR %>% group_by(anio, mes) %>% mutate(cambio=mean(tipo_cambio_a3500)) %>% 
+    select(anio, mes, cambio) %>% unique()
+  
+  ########################
+  ## TGI
+  ########################
+  ### LIQUIDADO TGI
+  liquidadoTGI <- read_excel("THI/LIQUIDADO_TGI.xlsx")
+  liquidadoTGI$TOTAL<- as.double(liquidadoTGI$TOTAL)
+  
+  totalesLiqTGI <-  liquidadoTGI %>% left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes") ) %>% 
+    mutate(totDol=TOTAL/cambio) %>% 
+    group_by(ANIO) %>% mutate(total = sum(TOTAL), totDol =sum(totDol)) %>%
+    select(ANIO, total, totDol) %>% unique() 
+    
+  ### ESTADO DE LO LIQUIDADO TGI
+  ESTADO_TGI <- read_excel("THI/ESTADO_TGI.xlsx")
+  ESTADO_TGI$PORCENTAJE <- as.double(ESTADO_TGI$PORCENTAJE )
+  
+  estado_TGI <- ESTADO_TGI %>% 
+    select(ANIO, MES, ESTADO, PORCENTAJE) %>% 
+    left_join(liquidadoTGI,   by=c("ANIO"= "ANIO", "MES"="MES")) %>% 
+    mutate(TOTAL=TOTAL*PORCENTAJE/100) %>% 
+    select(ANIO, MES, ESTADO, TOTAL, CANTIDAD, PORCENTAJE) %>% 
+    left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes")) 
+  
+  estado_TGI$totD <- estado_TGI$TOTAL/estado_TGI$cambio
+
+  TliquidadoTGI <- estado_TGI %>% #left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes") ) %>%
+    group_by(ANIO) %>%
+    mutate(total = sum(TOTAL),totDol =sum(totD)) %>% select(anio=ANIO, total, totDol) %>% unique()
+
+    
+  ########################
+  ## OSM
+  ########################
+  ### LIQUIDADO OSM
+  liquidadoOSM <- read_excel("THI/LIQUIDADO_OSM.xlsx")
+  liquidadoOSM$TOTAL<- as.double(liquidadoOSM$TOTAL)
+  
+  totalesLiqOSM <-  liquidadoOSM %>% left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes") ) %>% 
+    mutate(totDol=TOTAL/cambio) %>% 
+    group_by(ANIO) %>% mutate(total = sum(TOTAL), totDol =sum(totDol)) %>%
+    select(ANIO, total, totDol) %>% unique() 
+    
+  ### ESTADO DE LO LIQUIDADO TGI
+  ESTADO_OSM <- read_excel("THI/ESTADO_OSM.xlsx")
+  ESTADO_OSM$PORCENTAJE <- as.double(ESTADO_OSM$PORCENTAJE )
+  
+  estado_OSM <- ESTADO_OSM %>% 
+    select(ANIO, MES, ESTADO, PORCENTAJE) %>% 
+    left_join(liquidadoTGI,   by=c("ANIO"= "ANIO", "MES"="MES")) %>% 
+    mutate(TOTAL=TOTAL*PORCENTAJE/100) %>% 
+    select(ANIO, MES, ESTADO, TOTAL, CANTIDAD, PORCENTAJE) %>% 
+    left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes")) 
+  
+  estado_OSM$totD <- estado_OSM$TOTAL/estado_OSM$cambio
+
+  TliquidadoOSM <- estado_OSM %>% #left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes") ) %>%
+    group_by(ANIO) %>%
+    mutate(total = sum(TOTAL),totDol =sum(totD)) %>% select(anio=ANIO, total, totDol) %>% unique()
+
+  ########################
+  ## THI
+  ########################
+  ### LIQUIDADO THI
+  liquidado <- read_excel("THI/LIQUIDADO_THI.xlsx")
+  liquidado$TOTAL<- as.double(liquidado$TOTAL)
+  
+  totalesLiq <-  liquidado %>% left_join(cambio,   by=c("ANIO"= "anio", "MES"="mes")) %>% 
+    mutate(totDol = TOTAL/cambio) %>% 
+    group_by(ANIO) %>% mutate(total = sum(TOTAL, na.rm=T), totDol =sum(totDol, na.rm=T)) %>% 
+    select(anio=ANIO, total, totDol) %>% unique() 
+    
+  ## THI por Estado
+  ESTADO_THI <- read_excel("THI/ESTADO_THI.xlsx")
+  ESTADO_THI$TOTAL <- as.double(ESTADO_THI$TOTAL)
+  
+  # Uno los montos con el cambio para pasarlo a dólares
+  ESTADO_THI <- ESTADO_THI %>% left_join(cambio,  by=c("ANIO"= "anio", "MES"="mes")) %>% 
+    mutate(total = TOTAL/cambio)
+  
+  ## ESTADOS SIN LA ACTUALIZACION DE DEUDA POR MORA NI INTERESES
+  # Armo la tabla de totales según el tipo por año
+  total_estado <- ESTADO_THI %>% group_by(ANIO, ESTADO) %>% mutate(totalEst = sum(total, na.rm = T)) %>% 
+    select(ANIO, ESTADO, totalEst) %>% unique() %>% spread(ESTADO, totalEst) %>%
+    mutate(total= sum(A,C,D,J,P, na.rm = T)) %>% 
+    select(anio=ANIO, adeudado=A, condonado=C, documentado=D, judicializado=J, pagado=P, total)
+  
+  total_estado_peso <- ESTADO_THI %>% group_by(ANIO, ESTADO) %>% mutate(totalEstPeso = sum(TOTAL, na.rm = T)) %>% 
+    select(ANIO, ESTADO, totalEstPeso) %>% unique() %>% spread(ESTADO, totalEstPeso) %>% mutate(total= sum(A,C,D,J,P, na.rm = T)) %>% 
+    select(anio=ANIO, adeudado=A, condonado=C, documentado=D, judicializado=J, pagado=P, total)
+   
+  ## DEUDA THI EN BASE AL ULTIMO CALCULO LIQUIDADO (INCLUYE MORA E INTERESES)
+  ## 
+  DEUDA_2015 <- read_excel("THI/DEUDA2015_2020.xlsx", "2015")
+  DEUDA_2016 <- read_excel("THI/DEUDA2015_2020.xlsx", "2016")
+  DEUDA_2017 <- read_excel("THI/DEUDA2015_2020.xlsx", "2017")
+  DEUDA_2018 <- read_excel("THI/DEUDA2015_2020.xlsx", "2018")
+  DEUDA_2019 <- read_excel("THI/DEUDA2015_2020.xlsx", "2019")
+  # DEUDA_2020 <- read_excel("THI/DEUDA2015_2020.xlsx", "2020")
+
+  COMERCIOS <- read_excel("THI/COMERCIOS_ACTIVOS.xlsx")
+  contibuciones <-read_csv("THI/contribuciones.csv")
+
+  contibuciones <- contibuciones %>%   filter(cuit %in% COMERCIOS$CUIT)%>% left_join(COMERCIOS, by=c("cuit"="CUIT"))
+  
+  salarios <- read_csv("THI/salarios.csv")
+  
+  salarios<- salarios %>% filter(cuit %in% COMERCIOS$CUIT)%>%left_join(COMERCIOS, by=c("cuit"="CUIT"))
+```
+
+
+
+
+## Distribución por Tasa
+El siguiente análisis se basa en información extraída del Sistema de Gestión de Administración Tributaria.
+
+Se considerarán la Tasa General Inmobiliaria (TGI), la Tasa por Inspección Sanitaria, Higiene, Profilaxis y Seguridad (THI) y la Tasa de Servicios de Obras Sanitarias (OSM).
+
+
+A continuación se detallan los porcentajes que representan las liquidaciones de cada tasa, los importes en pesos, en dólares y finalmente el detalle de los datos.
+
+Para el cálculo del importe en dólares se consideró el valor del cambio oficial vigente en el mes liquidado. Esta información fue extraída de los datos publicados por el [BCRA](https://datos.gob.ar/dataset/sspm-tipo-cambio--usd---futuro-dolar). 
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Distribución
+```{r distrTasaG, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  totalesLiqTGI$tasa <- "TGI"
+  totalesLiq$tasa <- "THI"
+  totalesLiqOSM$estado <- "OSM"
+  
+  TOTALES <- totalesLiq %>% left_join(totalesLiqTGI, by=c("anio"="ANIO")) %>% 
+    left_join(totalesLiqOSM, by=c("anio"="ANIO")) %>% 
+    select(anio, THIP = total.x, THID = totDol.x, TGIP=total.y, TGID=totDol.y, TOSMP=total, TOSMD=totDol)
+    
+  TOTALES$porcTHI <- round(TOTALES$THIP/(TOTALES$THIP+TOTALES$TGIP+TOTALES$TOSMP)*100,2)
+  TOTALES$porcTGI <- round(TOTALES$TGIP/(TOTALES$THIP+TOTALES$TGIP+TOTALES$TOSMP)*100,2)
+  TOTALES$porcOSM <- round(TOTALES$TOSMP/(TOTALES$THIP+TOTALES$TGIP+TOTALES$TOSMP)*100,2)
+  
+  plot_ly(TOTALES, x = ~anio, y = ~porcTHI, type = "bar", name = "THI",  color = I("steelblue3"),
+          hoverinfo = 'text',
+          text = ~paste('THI: ', porcTHI, ' %')) %>% 
+    add_trace(y = ~porcTGI, name = "TGI", color = I("olivedrab3"), text = ~paste('TGI: ', porcTGI, ' %')) %>% 
+    add_trace(y = ~porcOSM, name = "OSM", color = I("indianred3"), text = ~paste('OSM: ', porcOSM, ' %')) %>%
+    layout(yaxis = list(title = "Tipos de Tasa"), barmode = "stack",
+           legend = list(x = 10.029, y = 1.038, font = list(size = 10)))
+  
+```
+
+
+
+
+
+  
+#### Pesos
+```{r distrTasa, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}  
+  plot_ly(TOTALES, x = ~anio, y = ~THIP, type = "bar", 
+          name = "THI",  color = I("steelblue3"), hoverinfo = 'text',
+          text = ~paste('</br> THI ($): ', THIP)) %>% 
+    add_trace(y = ~TGIP, name = "TGI",  
+              text = ~paste('TGI ($): ', TGIP), 
+              color = I("olivedrab3")) %>%  
+    add_trace(y = ~TOSMP, name = "OSM",  text = ~paste('OSM ($): ', TOSMP), color = I("indianred3")) %>%
+    layout(yaxis = list(title = "$"), barmode = "stack",
+           legend = list(x = 10.029, y = 1.038, font = list(size = 10)))
+
+```
+
+
+
+#### Dólares
+```{r distrTasaD, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  TOTALES$THID <- round(TOTALES$THID, 1)
+  TOTALES$TGID <- round(TOTALES$TGID, 1)
+  TOTALES$TOSMD <- round(TOTALES$TOSMD, 1)
+
+ plot_ly(TOTALES, x = ~anio, y = ~THID, type = "bar", 
+          name = "THI USD",  color = I("steelblue3"), hoverinfo = 'text',
+          text = ~paste('THI (USD): ', THID)) %>% 
+    add_trace(y = ~TGID, name = "TGI USD",  
+              text = ~paste('TGI (USD): ',round(TGID,1) ), 
+              color = I("olivedrab3")) %>%  
+    add_trace(y = ~TOSMD, name = "OSM USD",  text = ~paste('OSM (USD): ', TOSMD), 
+              color = I("indianred3")) %>%
+    layout(yaxis = list(title = "USD"), barmode = "stack",
+           legend = list(x = 10.029, y = 1.038, font = list(size = 10)))
+
+```
+
+
+
+#### Tabla
+```{r tablaEstTASA, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+  tabla <- TOTALES %>% mutate(totalP= (THIP+TGIP+TOSMP), totalD= (THID+TGID+TOSMD)) %>%
+  select(anio, porcTHI, porcTGI, porcOSM, totalP, totalD) %>% arrange(anio)
+
+  datatable(tabla,class = 'cell-border stripe',rownames = FALSE,# options(digits = 2),
+            colnames = c("Año", "% THI", "% TGI", "% OSM", "Total ($)", "Total (USD)"),
+            options = list(pageLength = 10, autoWidth = TRUE)) %>% 
+    formatRound(columns=c("totalP", "totalD"), digits=1)
+```
+
+
+
+
+
+
+## TGI
+La determinación de la Tasa General Inmobiliaria se calcula según la tipificación del inmueble. Esta clasificación estará basada en la superficie (total y edificada) y los servicios recibidos: 
+
+  a) Recolección de residuos
+  
+  b) Barrido y limpieza de calles
+  
+  c) Alumbrado público
+  
+  d) Mantenimiento y reparaciones de calles
+  
+  e) Mantenimientos de espacios verdes y recolección de ramas
+  
+  f) Servicios por ordenamientos urbanos, y servicios varios de urbanización.
+
+
+### Liquidación Anual TGI
+
+A continuación se muestran los montos totales liquidados entre el período comprendido por los años 2015-2020 para dicha tasa.
+
+Los totales expresados son los liquidados sin contemplar posibles moras e intereses por deuda. Para permitir comparabilidad los montos han sido convertidos al dólar oficial del año y mes correspondientes a la liquidación y se expresan en millones.
+
+<!-- El año de mayor liquidación en dólares hasta el momento es el 2015. El 2020 aún no se puede considerar. -->
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Dólares
+```{r liquidadoTGI, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  plot_ly(TliquidadoTGI, x = ~anio, y = ~totDol, type = "bar", name = "Total liquidado por TGI",
+             texttemplate = '%{y:.3s}',
+          textposition = 'outside') %>% 
+      layout(title="Total liquidado por TGI", xaxis=list(title="Año"), yaxis = list(title = "USD"))
+  
+```
+
+
+
+#### Pesos
+```{r liquidadoPesosTGI, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  plot_ly(TliquidadoTGI, x = ~anio, y = ~total, type = "bar", name = "Total liquidado por TGI",
+             texttemplate = '%{y:.3s}',
+          textposition = 'outside') %>% 
+      layout(title="Total liquidado por TGI", xaxis=list(title="Año"), yaxis = list(title = "$"))
+  
+```
+
+
+
+### Estado de lo liquidado OSM
+A continuación se presenta un gráfico con los porcentajes según el estado. Estos estados pueden ser Pagado, Judicializado, Documentado, Condonado o Adeudado.
+
+Como se observa, en el año 2015 se obtuvo el mayor % del monto pagado de la TGI hasta el momento. 
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Grafico
+```{r estadoGralTGI, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  estadoTGI <- estado_TGI %>% group_by(ANIO, ESTADO) %>% 
+    mutate(totalP = sum(TOTAL, na.rm = T), totalD = sum(totD, na.rm = T)) %>% 
+   select(anio=ANIO, estado=ESTADO, totalP, totalD) %>% unique()  %>% 
+  group_by(anio) %>% mutate(porc=totalP/sum(totalP))
+  
+  estadoTGI$estado <- gsub("A", "Adeudado", estadoTGI$estado)
+  estadoTGI$estado <- gsub("P", "Pagado", estadoTGI$estado)
+  estadoTGI$estado <- gsub("J", "Judicializado", estadoTGI$estado)
+  estadoTGI$estado <- gsub("C", "Condonado", estadoTGI$estado)
+  estadoTGI$estado <- gsub("D", "Documentado", estadoTGI$estado)   
+  
+  g<-ggplot(estadoTGI, aes(anio, porc, fill = estado, 
+                      text = paste0(estado,": ", sprintf("%1.1f%%", 100*porc))))+
+  geom_col(position = "stack", alpha=0.6) + 
+    coord_flip()+
+  labs(x="",y="Porcentaje")+
+  scale_y_continuous(labels = percent)+
+  theme(legend.position = "bottom",
+        legend.title=element_blank(),
+        axis.text.x = element_text(angle=25)) +
+   scale_fill_manual(values=c("#d7191c", "#fdae61",  "#0072B2", "#a6d96a", "#1a9641"))+
+     theme(legend.position = "top")
+
+
+    ggplotly(g, tooltip = c("x", "text")) %>% 
+      layout(legend = list(orientation = "h", x = -0.01, y =-0.15),
+             title= "TGI - Estado de los montos liquidados")
+  
+```
+
+
+#### Tabla
+```{r tablaEstTGI, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+  testado <- estadoTGI %>% mutate(porcentaje=porc*100) %>% 
+  select(anio, estado, totalP, totalD, porcentaje)
+
+  datatable(testado,class = 'cell-border stripe',rownames = FALSE,# options(digits = 2),
+            colnames = c("Año", "Estado", "Monto ($)", "Monto (USD)",  "Porcentaje (%)"),
+            options = list(pageLength = 10, autoWidth = TRUE)) %>% 
+    formatRound(columns=c("totalP", "totalD", "porcentaje"), digits=1)
+```
+
+
+
+
+
+
+
+
+
+## OSM
+### Liquidación Anual OSM
+
+A continuación se muestran los montos totales liquidados entre el período comprendido por los años 2015-2020 para dicha tasa.
+
+Los totales expresados son los liquidados sin contemplar posibles moras e intereses por deuda. Para permitir comparabilidad los montos han sido convertidos al dólar oficial del año y mes correspondientes a la liquidación y se expresan en millones.
+
+<!-- El año de mayor liquidación en dólares hasta el momento es el 2015. El 2020 aún no se puede considerar. -->
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Dólares
+```{r liquidadoOSM, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  plot_ly(TliquidadoOSM, x = ~anio, y = ~totDol, type = "bar", name = "Total liquidado por TGI",
+             texttemplate = '%{y:.3s}',
+          textposition = 'outside') %>% 
+      layout(title="Total liquidado por OSM", xaxis=list(title="Año"), yaxis = list(title = "USD"))
+  
+```
+
+
+
+#### Pesos
+```{r liquidadoPesosOSM, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  plot_ly(TliquidadoOSM, x = ~anio, y = ~total, type = "bar", name = "Total liquidado por TGI",
+             texttemplate = '%{y:.3s}',
+          textposition = 'outside') %>% 
+      layout(title="Total liquidado por OSM", xaxis=list(title="Año"), yaxis = list(title = "$"))
+  
+```
+
+
+
+
+### Estado de lo liquidado OSM
+A continuación se presenta un gráfico con los porcentajes según el estado. Estos estados pueden ser Pagado, Judicializado, Documentado, Condonado o Adeudado.
+
+Como se observa, en el año 2015 se obtuvo el mayor % del monto pagado de la TGI hasta el momento. 
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Grafico
+```{r estadoGralOSM, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  estadoOSM <- estado_OSM %>% group_by(ANIO, ESTADO) %>% 
+    mutate(totalP = sum(TOTAL, na.rm = T), totalD = sum(totD, na.rm = T)) %>% 
+   select(anio=ANIO, estado=ESTADO, totalP, totalD) %>% unique()  %>% 
+  group_by(anio) %>% mutate(porc=totalP/sum(totalP))
+  
+  estadoOSM$estado <- gsub("A", "Adeudado", estadoOSM$estado)
+  estadoOSM$estado <- gsub("P", "Pagado", estadoOSM$estado)
+  estadoOSM$estado <- gsub("J", "Judicializado", estadoOSM$estado)
+  estadoOSM$estado <- gsub("C", "Condonado", estadoOSM$estado)
+  estadoOSM$estado <- gsub("D", "Documentado", estadoOSM$estado)   
+  
+  g<-ggplot(estadoOSM, aes(anio, porc, fill = estado, 
+                      text = paste0(estado,": ", sprintf("%1.1f%%", 100*porc))))+
+  geom_col(position = "stack", alpha=0.6) + 
+    coord_flip()+
+  labs(x="",y="Porcentaje")+
+  scale_y_continuous(labels = percent)+
+  theme(legend.position = "bottom",
+        legend.title=element_blank(),
+        axis.text.x = element_text(angle=25)) +
+   scale_fill_manual(values=c("#d7191c", "#fdae61",  "#0072B2", "#a6d96a", "#1a9641"))+
+     theme(legend.position = "top")
+
+
+    ggplotly(g, tooltip = c("x", "text")) %>% 
+      layout(legend = list(orientation = "h", x = -0.01, y =-0.15),
+             title= "OSM - Estado de los montos liquidados")
+  
+```
+
+
+#### Tabla
+```{r tablaEstOSM, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+  testadoO <- estadoOSM %>% mutate(porcentaje=porc*100) %>% 
+  select(anio, estado, totalP, totalD, porcentaje)
+
+  datatable(testadoO,class = 'cell-border stripe',rownames = FALSE,# options(digits = 2),
+            colnames = c("Año", "Estado", "Monto ($)", "Monto (USD)",  "Porcentaje (%)"),
+            options = list(pageLength = 10, autoWidth = TRUE)) %>% 
+    formatRound(columns=c("totalP", "totalD", "porcentaje"), digits=1)
+```
+
+
+
+
+
+
+
+
+
+
+
+## THI
+La Tasa de Inspección Sanitaria, Higiene, Profilaxis y Seguridad es la contraprestación por los servicios de registro y control de actividades a título oneroso y de competencia municipal, sobre el comercio, la industria y los servicios, destinadas a constatar y preservar la seguridad, salubridad, higiene, etc. en los locales y establecimientos radicados en el Municipio.
+Anualmente la Tasa de Inspección Sanitaria, Higiene, Profilaxis y Seguridad representa gran parte de los ingresos por recursos propios del municipio.
+
+
+### Liquidación Anual THI
+
+A continuación se muestran los montos totales liquidados entre el período comprendido por los años 2015-2020 para dicha tasa.
+
+Los montos expresados son los liquidados sin contemplar posibles moras e intereses por deuda.
+
+Para permitir comparabilidad los montos han sido convertidos al dolar oficial del año y mes correspondientes a la liquidación y se expresan en millones de dólares.
+
+El año de mayor liquidación en dólares hasta el momento es el 2015. El 2020 aún no se puede considerar.
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Dólares
+```{r liquidado, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  plot_ly(total_estado, x = ~anio, y = ~total, type = "bar", name = "Total liquidado por THI",
+             texttemplate = '%{y:.3s}',
+          textposition = 'outside') %>% 
+      layout(title="Total liquidado por THI", xaxis=list(title="Año"), yaxis = list(title = "USD"))
+  
+```
+
+
+
+#### Pesos
+```{r liquidadoPesos, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  plot_ly(total_estado_peso, x = ~anio, y = ~total, type = "bar", name = "Total liquidado por THI",
+             texttemplate = '%{y:.3s}',
+          textposition = 'outside') %>% 
+      layout(title="Total liquidado por THI", xaxis=list(title="Año"), yaxis = list(title = "$"))
+  
+```
+
+
+
+
+
+
+### Estado de lo liquidado THI
+A continuación se presenta un gráfico con los porcentajes según el estado. Estos estados pueden ser Pagado, Judicializado, Documentado, Condonado o Adeudado.
+
+Como se observa, en el año 2016 se obtuvo el mayor % del monto pagado. 
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Grafico
+```{r estadoGral, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  estados <- ESTADO_THI %>% group_by(ANIO, ESTADO) %>% mutate(tot = sum(TOTAL)) %>% select(ANIO, ESTADO, tot) %>% unique()  
+  estados <- estados %>% group_by(ANIO) %>% mutate(porc = round(tot/sum(tot),3) ) %>% select(ANIO, ESTADO, tot, porc) %>% unique() 
+
+  estados$estado <- estados$ESTADO
+  estados$estado <- gsub("A", "Adeudado", estados$estado)
+  estados$estado <- gsub("P", "Pagado", estados$estado)
+  estados$estado <- gsub("J", "Judicializado", estados$estado)
+  estados$estado <- gsub("C", "Condonado", estados$estado)
+  estados$estado <- gsub("D", "Documentado", estados$estado)   
+  
+  
+  g<-ggplot(estados, aes(ANIO, porc, fill = estado, 
+                      text = paste0(estado,": ", sprintf("%1.1f%%", 100*porc))))+
+  geom_col(position = "stack", alpha=0.6) + 
+    coord_flip()+
+  # geom_text(position = position_stack(vjust = 0.5), size=3)+
+  labs(x="",y="Porcentaje")+
+  scale_y_continuous(labels = percent)+
+  theme(legend.position = "bottom",
+        legend.title=element_blank(),
+        axis.text.x = element_text(angle=25)) +
+   scale_fill_manual(values=c("#d7191c", "#fdae61",  "#0072B2", "#a6d96a", "#1a9641"))+
+     theme(legend.position = "top")
+
+
+    ggplotly(g, tooltip = c("x", "text")) %>% layout(legend = list(orientation = "h", x = -0.01, y =-0.15))
+  
+```
+
+
+#### Tabla
+```{r tablaEst, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+  testado <- estados %>% mutate(porcentaje=porc*100) %>% select(ANIO, estado, tot, porcentaje)
+
+  datatable(testado,class = 'cell-border stripe',rownames = FALSE, 
+            colnames = c("Año", "Estado",  "Deuda (USD)",  "Porcentaje (%)"),
+            options = list(pageLength = 10, autoWidth = TRUE))
+```
+
+
+
+
+### Adeudado THI
+
+A continuación se grafican los montos (en dólares) adeudados por año hasta el momento. Para este gráfico se utilizan las deudas calculadas al momento de la liquidación, sin considerar montos por moras e intereses por deuda.
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Gráfico
+```{r adeudado, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+ adeudado <- ESTADO_THI %>% filter(ESTADO=="A") %>% 
+  group_by(ANIO) %>% mutate(totPeso=sum(TOTAL)) %>% select(ANIO, totPeso) %>% unique()
+
+  comparacion <- total_estado %>% left_join(adeudado, by=c("anio"="ANIO")) %>% filter(!is.na(anio))
+  
+   deudaDol <- sum(comparacion$adeudado)
+  deudahoy <-  sum(comparacion$totPeso)/70.51500
+  
+ p<-total_estado %>% 
+        ggplot(aes(x=anio, y=adeudado)) +
+        geom_bar(stat='identity', aes(fill=adeudado), width=.7, show.legend = F) +
+        geom_text(aes(label=format(abs(round(adeudado,0)), nsmall=0, big.mark=".", decimal.mark = ",")), 
+                  hjust=-0.1, vjust=0.38, show.legend = F) +
+        scale_x_continuous()+
+        scale_y_continuous()+
+        coord_flip() +
+        labs(title='Total anual adeudado  por THI en USD', 
+             subtitle="Valores expresados en dólares al tipo de cambio oficial del mes liquidado", 
+             caption="fuente: MCU - BCRA", 
+             x="Año",y="Total",
+             color=NULL) +
+        theme(axis.text.y = element_text(size=8))
+
+  ggplotly(p)
+  
+```
+
+
+
+Para aproximarnos al cálculo de lo perdido a pesar de que se logre cobrar lo adeudado se realizarán los siguientes cálculos: 
+
+* Al monto adeudado en pesos se lo convirtió al dólar oficial vigente en el año y mes correspondiente.
+
+* Se sumaron los totales en ambas monedas 
+
+* Posteriormente a la deuda en pesos se la convertió al dolar oficial actual 
+
+* Finalmente se calcula la diferencia entre ambos montos expresados en dólares
+
+
+
+El total adeudado desde el 2015 al 2020 es de `r format(sum(comparacion$totPeso), big.mark=".") ` Pesos($) que equivalen en la actualidad a `r format( (sum(comparacion$totPeso)/70.51500), big.mark=".", decimal.mark=",")` dólares(USD), considerando el dólar oficial promedio a $70,5.
+
+Si sumamos los montos convertidos al dólar oficial del mes en que se liquidó la tasa, el total adeudado es de `r format(sum(comparacion$adeudado), big.mark=".",  decimal.mark=",") ` dólares.
+
+En consecuencia, a pesar de que se logre cobrar el total adeudado, ya se han perdido **USD** **`r format(deudaDol - deudahoy, big.mark=".")`** dólares.
+
+
+
+
+#### Tabla
+En la tabla a continuación se muestran los montos anuales adeudados expresados en pesos Argentinos y en dólares calculados en base al dólar oficial reportado por el BCRA para el año y mes en que fue liquidada la tasa THI.
+
+```{r compara,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='70%'}
+
+ 
+  
+  comparacion %>% select(anio, adeudado, totPeso) %>% 
+    kable( col.names =  c("Año", "Deuda USD", "Deuda en Pesos ($)"),
+                       format.args = list( big.mark=".", decimal.mark = ","),
+            align =  c('l', 'c', 'c') ) %>%  kable_styling() %>%   kable_styling(full_width = F)
+  
+ 
+  
+```
+
+
+
+
+
+
+
+
+
+
+### Análisis de la deuda THI
+
+A continuación se muestran los montos adeudados de la THI por mes de cada año en base a la última liquidación del mismo.
+
+En los años analizados, 2015 - 2019, no se observa un patrón relacionado con estaciones o meses mas frecuente para las deudas mayores.
+
+```{r deuda201516, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+  ## 2015
+  deuda2015 <- DEUDA_2015 %>% filter(`PENDIENTE DE PAGO`>0)
+  deuda2015$anio <-2015
+  deuda2015$PERIODO <- gsub("2015", "",   deuda2015$PERIODO)
+  deuda2015$PERIODO <- as.integer(deuda2015$PERIODO)
+  names(deuda2015)<-c("licencia", "nombreNeg", "mes",  "facturado", "deuda", "importeTasa", "email", "actividad", "domicilio", "anio")
+  dolar2015 <- cambio %>%  filter(anio=="2015")
+  deuda2015 <- deuda2015 %>% left_join(dolar2015, by=c("mes"="mes"))
+  
+  deuda2015$totDol <- deuda2015$deuda/deuda2015$cambio
+
+  
+  ## 2016
+  deuda2016 <- DEUDA_2016 %>% filter(`PENDIENTE DE PAGO`>0)
+  deuda2016$anio <-2016
+  deuda2016$PERIODO <- gsub("2016", "",   deuda2016$PERIODO)
+  deuda2016$PERIODO <- as.integer(deuda2016$PERIODO)
+  names(deuda2016)<-c("licencia", "nombreNeg", "mes", 
+                      "facturado", "deuda", "importeTasa", "email", "actividad", "domicilio", "anio")
+  dolar2016 <- cambio %>%  filter(anio=="2016")
+  deuda2016 <- deuda2016 %>% left_join(dolar2016, by=c("mes"="mes"))
+  deuda2016$totDol <- deuda2016$deuda/deuda2016$cambio
+  
+  ## 2017
+  deuda2017 <- DEUDA_2017 %>% filter(`PENDIENTE DE PAGO`>0)
+  deuda2017$anio <-2017
+  deuda2017$PERIODO <- gsub("2017", "",   deuda2017$PERIODO)
+  deuda2017$PERIODO <- as.integer(deuda2017$PERIODO)
+  names(deuda2017)<-c("licencia", "nombreNeg", "mes", 
+                      "facturado", "deuda", "importeTasa", "email", "actividad", "domicilio", "anio")
+  dolar2017 <- cambio %>%  filter(anio=="2017")
+  deuda2017 <- deuda2017 %>% left_join(dolar2017, by=c("mes"="mes"))
+  deuda2017$totDol <- deuda2017$deuda/deuda2017$cambio
+  
+  ## 2017
+  deuda2017 <- DEUDA_2017 %>% filter(`PENDIENTE DE PAGO`>0)
+  deuda2017$anio <-2017
+  deuda2017$PERIODO <- gsub("2017", "",   deuda2017$PERIODO)
+  deuda2017$PERIODO <- as.integer(deuda2017$PERIODO)
+  names(deuda2017)<-c("licencia", "nombreNeg", "mes", 
+                      "facturado", "deuda", "importeTasa", "email", "actividad", "domicilio", "anio")
+  dolar2017 <- cambio %>%  filter(anio=="2017")
+  deuda2017 <- deuda2017 %>% left_join(dolar2017, by=c("mes"="mes"))
+  deuda2017$totDol <- deuda2017$deuda/deuda2017$cambio
+  
+  ## 2018
+  deuda2018 <- DEUDA_2018 %>% filter(`PENDIENTE DE PAGO`>0)
+  deuda2018$anio <-2018
+  deuda2018$PERIODO <- gsub("2018", "",   deuda2018$PERIODO)
+  deuda2018$PERIODO <- as.integer(deuda2018$PERIODO)
+  names(deuda2018)<-c("licencia", "nombreNeg", "mes", 
+                      "facturado", "deuda", "importeTasa", "email", "actividad", "domicilio", "anio")
+  dolar2018 <- cambio %>%  filter(anio=="2018")
+  deuda2018 <- deuda2018 %>% left_join(dolar2018, by=c("mes"="mes"))
+  deuda2018$totDol <- deuda2018$deuda/deuda2018$cambio
+  
+   ## 2019
+  deuda2019 <- DEUDA_2019 %>% filter(`PENDIENTE DE PAGO`>0)
+  deuda2019$anio <-2019
+  deuda2019$PERIODO <- gsub("2019", "",   deuda2019$PERIODO)
+  deuda2019$PERIODO <- as.integer(deuda2019$PERIODO)
+  names(deuda2019)<-c("licencia", "nombreNeg", "mes", 
+                      "facturado", "deuda", "importeTasa", "email", "actividad", "domicilio", "anio")
+  dolar2019 <- cambio %>%  filter(anio=="2019")
+  deuda2019 <- deuda2019 %>% left_join(dolar2019, by=c("mes"="mes"))
+  deuda2019$totDol <- deuda2019$deuda/deuda2019$cambio
+  
+  
+  deuda <- rbind(deuda2015, deuda2016, deuda2017, deuda2018, deuda2019)
+  
+
+  
+    subtot <- deuda %>% group_by(anio.x, mes) %>% mutate(totMensPes=sum(deuda), totMensDol=sum(totDol)) %>% 
+      select(anio=anio.x, mes, totMensPes, totMensDol) %>% arrange(anio, mes) %>%  unique()
+  
+  p <- subtot %>% 
+     ggplot(aes(x=mes, fill= anio, y= totMensDol, 
+                text = paste0("Año: ", anio, "\n Mes: ", mes, "\n Deuda: $ ", round(totMensDol,1) )))+
+     geom_bar(stat ='identity', position=position_dodge(), show.legend = F)+ 
+     scale_x_continuous( breaks=c( 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+                       labels=c("1"="Ene", "2"="Feb", "3"="Mar", "4"="Abr", "5"="May", "6"= "Jun",
+                              "7"="Jul", "8"="Ago", "9"="Sept", "10"="Oct", "11"="Nov", "12"= "Dic")) +
+     labs(title = paste("THI"), 
+       subtitle = paste("Total adeudado mensualmente entre el 2015 y 2019") , 
+       y = "Total",  x = "" )+
+    facet_wrap(~ anio, ncol = 2)
+  
+  ggplotly(p, tooltip = c("text"))
+  
+  
+```
+
+### Grandes Contribuyentes THI
+
+En los gráficos a continuación se muestran los principales contribuyentes que no presentan deuda y realizan los mayores aportes de la Tasa THI.
+
+En la mayoría de los años, a excecpción del 2018, los contribuyentes que mas aportan por la Tasa de Inspección Sanitaria, Higiene, Profilaxis y Seguridad son **Entidades Bancarias**.
+
+### {.tabset .tabset-fade .tabsest-pills}
+#### 2015
+```{r contrib15,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  DEUDA_2015$anio <-2015
+  DEUDA_2015$PERIODO <- gsub("2015", "",   DEUDA_2015$PERIODO)
+  DEUDA_2015$PERIODO <- as.integer(DEUDA_2015$PERIODO)
+  
+  DEUDA_2016$anio <-2016
+  DEUDA_2016$PERIODO <- gsub("2016", "", DEUDA_2016$PERIODO)
+  DEUDA_2016$PERIODO <- as.integer(DEUDA_2016$PERIODO)
+  
+  DEUDA_2017$anio <-2017
+  DEUDA_2017$PERIODO <- gsub("2017", "", DEUDA_2017$PERIODO)
+  DEUDA_2017$PERIODO <- as.integer(DEUDA_2017$PERIODO)
+  
+  DEUDA_2018$anio <-2018
+  DEUDA_2018$PERIODO <- gsub("2018", "", DEUDA_2018$PERIODO)
+  DEUDA_2018$PERIODO <- as.integer(DEUDA_2018$PERIODO)
+  
+  DEUDA_2019$anio <-2019
+  DEUDA_2019$PERIODO <- gsub("2019", "", DEUDA_2019$PERIODO)
+  DEUDA_2019$PERIODO <- as.integer(DEUDA_2019$PERIODO)
+  
+  pagadores <- rbind(DEUDA_2015, DEUDA_2016, DEUDA_2017, DEUDA_2018, DEUDA_2019)
+  
+  pagadores <- pagadores %>% filter(`PENDIENTE DE PAGO`<=10) %>% 
+    select(negocio=`NOMBRE FANTASIA`, anio, periodo=PERIODO, facturacion=`MONTO TOTAL FACTURADO`, 
+           pagado=`IMPORTE TASA`, email=EMAIL, actividad=`ACTIVIDAD PRINCIPAL`, domicilio=`DOMICILIO COMERCIAL`) %>% 
+    group_by(negocio, anio) %>% mutate(pagado=sum(pagado)) %>%  
+    select(negocio, anio, #facturacion, 
+           pagado, email, actividad, domicilio) %>% unique()
+  
+ 
+  mejores20 <- pagadores %>% group_by(anio, negocio) %>% arrange(desc(pagado)) %>% group_by(anio) %>%  top_n(20, pagado)
+    
+  g <- mejores20 %>% filter(anio=="2015") %>% arrange(desc(pagado)) %>% select(negocio, pagado) %>%  unique() %>% 
+      ggplot(aes(reorder(negocio, pagado, order = F ), pagado, text= paste0(negocio, ": $ ",pagado ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(pagado,0), y= round(pagado, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2015 - Principales contribuyentes", 
+          subtitle = "Año 2015 - Montos en USD",  x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+#### 2016
+```{r contrib16,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  g <- mejores20 %>% filter(anio=="2016") %>% arrange(desc(pagado)) %>% select(negocio, pagado) %>%  unique() %>% 
+      ggplot(aes(reorder(negocio, pagado, order = F ), pagado, text= paste0(negocio, ": $ ",pagado ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(pagado,0), y= round(pagado, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2016 - Principales contribuyentes", 
+          subtitle = "Año 2016 - Montos en USD",  x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+
+#### 2017
+```{r contrib17,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  g <- mejores20 %>% filter(anio=="2017") %>% arrange(desc(pagado)) %>% select(negocio, pagado) %>%  unique() %>% 
+      ggplot(aes(reorder(negocio, pagado, order = F ), pagado, text= paste0(negocio, ": $ ",pagado ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(pagado,0), y= round(pagado, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2017 - Principales contribuyentes", 
+          subtitle = "Año 2016 - Montos en USD",  x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+
+#### 2018
+```{r contrib18,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+ 
+ g <- mejores20 %>% filter(anio=="2018") %>% arrange(desc(pagado)) %>% select(negocio, pagado) %>%  unique() %>%
+      ggplot(aes(reorder(negocio, pagado, order = F ), pagado, text= paste0(negocio, ": $ ",pagado ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(pagado,0), y= round(pagado, 0) + 1),
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2018 - Principales contribuyentes",
+          subtitle = "Año 2016 - Montos en USD",  x = "", y = "", fill = NULL)
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+
+#### 2019
+```{r contrib19,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  g <- mejores20 %>% filter(anio=="2019") %>% arrange(desc(pagado)) %>% select(negocio, pagado) %>%  unique() %>% 
+      ggplot(aes(reorder(negocio, pagado, order = F ), pagado, text= paste0(negocio, ": $ ",pagado ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(pagado,0), y= round(pagado, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2019 - Principales contribuyentes", 
+          subtitle = "Año 2016 - Montos en USD",  x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+
+
+### Principales deudores THI
+
+Se seleccionaron los 20 deudores principales en base al monto de la deuda para los años comprendidos entre el 2015 y 2019. Los montos expresados son los totales anuales adeudados por cada uno de los negocios.
+
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### 2015
+```{r grafDeu15, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  deudores <- deuda %>%  group_by(anio.x, nombreNeg) %>% 
+      mutate(adeudado = round(sum(deuda), 1), adeudadoD = round(sum(totDol), 1)) %>% 
+      select(anio=anio.x, nombreNeg, adeudado, adeudadoD, email, actividad) %>% unique %>% arrange(anio, desc(adeudado))
+  
+  top50 <- deudores %>% group_by(anio, nombreNeg) %>% arrange(desc(adeudado)) %>% group_by(anio) %>%  top_n(20, adeudado) 
+    
+   g <- top50 %>% filter(anio=="2015") %>% arrange(desc(adeudadoD)) %>% select(nombreNeg, adeudadoD) %>%  unique() %>% 
+      ggplot(aes(reorder(nombreNeg, adeudadoD,order = F ), adeudadoD, text=paste0(nombreNeg, ": USD ",adeudadoD ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(adeudadoD,0), y= round(adeudadoD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2015 - Principales deudores", 
+          subtitle = "Año 2015 - Montos en USD",  x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+
+#### 2016
+```{r grafDeu16,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ g <- top50 %>% filter(anio=="2016") %>% arrange(desc(adeudadoD)) %>% select(nombreNeg, adeudadoD) %>%  unique() %>% 
+      ggplot(aes(reorder(nombreNeg, adeudadoD,order = F ), adeudadoD, text=paste0(nombreNeg, ": USD ",adeudadoD ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(adeudadoD,0), y= round(adeudadoD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2016 - Principales deudores", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+
+#### 2017
+```{r grafDeu17,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ g <- top50 %>% filter(anio=="2017") %>% arrange(desc(adeudadoD)) %>% select(nombreNeg, adeudadoD) %>%  unique() %>% 
+      ggplot(aes(reorder(nombreNeg, adeudadoD,order = F ), adeudadoD, text=paste0(nombreNeg, ": USD ",adeudadoD ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(adeudadoD,0), y= round(adeudadoD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2017 - Principales deudores", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+#### 2018
+```{r grafDeu18,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ g <- top50 %>% filter(anio=="2018") %>% arrange(desc(adeudadoD)) %>% select(nombreNeg, adeudadoD) %>%  unique() %>% 
+      ggplot(aes(reorder(nombreNeg, adeudadoD,order = F ), adeudadoD, text=paste0(nombreNeg, ": USD ",adeudadoD ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(adeudadoD,0), y= round(adeudadoD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2018 - Principales deudores", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+#### 2019
+```{r grafDeu19,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ g <- top50 %>% filter(anio=="2019") %>% arrange(desc(adeudadoD)) %>% select(nombreNeg, adeudadoD) %>%  unique() %>% 
+      ggplot(aes(reorder(nombreNeg, adeudadoD,order = F ), adeudadoD, text=paste0(nombreNeg, ": USD ",adeudadoD ))) +
+      geom_col(fill = "#fc6721",  alpha = 0.8)+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(adeudadoD,0), y= round(adeudadoD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2019 - Principales deudores", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+
+
+
+
+
+
+### Actividades principales THI
+
+Si se agrupan las deudas por actividad comercial, se obtienen las actividades que acumularon mayores deudas desagregadas por año.
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### 2015
+```{r grafActiv15,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+  activ <- deuda %>% group_by(actividad, anio.x) %>%
+      mutate(cantN=n(), deudaActD=round(sum(totDol), 1), deudaAct=round(sum(deuda), 1)) %>%
+  select(anio=anio.x, actividad, cantN, deudaActD, deudaAct) %>% unique()
+
+  top10 <- activ %>% group_by(anio, actividad) %>% arrange(desc(deudaActD)) %>% group_by(anio) %>%  top_n(10, deudaActD) 
+  
+  top10$actividad2 <- paste0(substr(top10$actividad, 1, 40), ' \n ', substr(top10$actividad, 41, length(top10$actividad)))
+  
+ g <- top10 %>% filter(anio=="2015") %>%  arrange(desc(deudaActD))  %>% 
+      ggplot(aes(reorder(actividad2, deudaActD,order = F ), deudaActD, text=paste0(actividad, ": USD ",deudaActD ))) +
+      geom_col(fill = "#67a9cf")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(deudaActD,0), y= round(deudaActD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2015 - Principales Actividades con deuda", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+#### 2016
+```{r grafActiv16,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ 
+ g <- top10 %>% filter(anio=="2016") %>%  arrange(desc(deudaActD))  %>% 
+      ggplot(aes(reorder(actividad2, deudaActD,order = F ), deudaActD, text=paste0(actividad, ": USD ",deudaActD ))) +
+      geom_col(fill = "#67a9cf")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(deudaActD,0), y= round(deudaActD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2016 - Principales Actividades con deuda", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+#### 2017
+```{r grafActiv17,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ 
+ g <- top10 %>% filter(anio=="2017") %>%  arrange(desc(deudaActD))  %>% 
+      ggplot(aes(reorder(actividad2, deudaActD,order = F ), deudaActD, text=paste0(actividad, ": USD ",deudaActD ))) +
+       geom_col(fill = "#67a9cf")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(deudaActD,0), y= round(deudaActD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2017 - Principales Actividades con deuda", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+#### 2018
+```{r grafActiv18,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ 
+ g <- top10 %>% filter(anio=="2018") %>%  arrange(desc(deudaActD))  %>% 
+      ggplot(aes(reorder(actividad2, deudaActD,order = F ), deudaActD, text=paste0(actividad, ": USD ",deudaActD ))) +
+      geom_col(fill = "#67a9cf")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(deudaActD,0), y= round(deudaActD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2018 - Principales Actividades con deuda", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+#### 2019
+```{r grafActiv19,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ 
+ g <- top10 %>% filter(anio=="2019") %>%  arrange(desc(deudaActD))  %>% 
+      ggplot(aes(reorder(actividad2, deudaActD,order = F ), deudaActD, text=paste0(actividad, ": USD ",deudaActD ))) +
+      geom_col(fill = "#67a9cf")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(deudaActD,0), y= round(deudaActD, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Año 2019 - Principales Actividades con deuda", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+```
+
+
+
+### Estudios Contables
+
+A continuación se mostrará la cantidad de los negocios que poseen deuda y poseen la misma dirección de correo electrónico.
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### 2015
+```{r contadoroes15, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  contadores <- deuda %>% group_by(anio.x, email) %>% mutate(negocios = n(),
+                                                             deudaD=sum(totDol),
+                                                             deudaP=sum(deuda)) %>% 
+  select(anio=anio.x, email, negocios, deudaP, deudaD) %>% unique() %>% 
+  arrange(anio, desc(negocios)) %>% filter( !is.na(email)) %>% 
+  group_by(anio) %>%  top_n(10, negocios) 
+
+ g <- contadores %>% filter(anio=="2015" ) %>%  arrange(desc(deudaD))  %>% 
+      ggplot(aes(reorder(email, negocios, order = F ), negocios,
+                 text=paste0(email, ": \n Negocios ",negocios, "\n Deuda USD: ", round(deudaD, 1) ))) +
+      geom_col(fill = "royalblue3")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(negocios,0), y= round(negocios, 0) + 1.5), 
+              hjust=1.1, color="black", size= 3)+
+     labs(title = "Año 2015 - Correos con mas negocios asociados", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+
+```
+
+
+#### 2016
+```{r contadoroes16, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  
+ g <- contadores %>% filter(anio=="2016" ) %>%  arrange(desc(deudaD))  %>% 
+      ggplot(aes(reorder(email, negocios, order = F ), negocios,
+                 text=paste0(email, ": \n Negocios ",negocios, "\n Deuda USD: ", round(deudaD, 1) ))) +
+      geom_col(fill = "royalblue3")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(negocios,0), y= round(negocios, 0) + 1.5), 
+              hjust=1.1, color="black", size= 3)+
+     labs(title = "Año 2016 - Correos con mas negocios asociados", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+
+```
+
+
+#### 2017
+```{r contadoroes17, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+ g <- contadores %>% filter(anio=="2017" ) %>%  arrange(desc(deudaD))  %>% 
+      ggplot(aes(reorder(email, negocios, order = F ), negocios,
+                text=paste0(email, ": \n Negocios ",negocios, "\n Deuda USD: ", round(deudaD, 1) ))) +
+      geom_col(fill = "royalblue3")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(negocios,0), y= round(negocios, 0) + 1.5), 
+              hjust=1.1, color="black", size= 3)+
+     labs(title = "Año 2017 - Correos con mas negocios asociados", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+
+```
+
+
+#### 2018
+```{r contadoroes18, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+ g <- contadores %>% filter(anio=="2018" ) %>%  arrange(desc(deudaD))  %>% 
+      ggplot(aes(reorder(email, negocios, order = F ), negocios,
+                 text=paste0(email, ": \n Negocios ",negocios, "\n Deuda USD: ", round(deudaD, 1) ))) +
+      geom_col(fill = "royalblue3")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(negocios,0), y= round(negocios, 0) + 1.5), 
+              hjust=1.1, color="black", size= 3)+
+     labs(title = "Año 2018 - Correos con mas negocios asociados", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+
+```
+
+
+#### 2019
+```{r contadoroes19, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+ 
+ g <- contadores %>% filter(anio=="2019" ) %>%  arrange(desc(deudaD))  %>% 
+      ggplot(aes(reorder(email, negocios, order = F ), negocios,
+                 text=paste0(email, ": \n Negocios ",negocios, "\n Deuda USD: ", round(deudaD, 1) ))) +
+      geom_col(fill = "royalblue3")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= round(negocios,0), y= round(negocios, 0) + 1.5), 
+              hjust=1.1, color="black", size= 3)+
+     labs(title = "Año 2019 - Correos con mas negocios asociados", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+
+
+```
+
+
+
+
+
+
+### Listado completo
+
+A continuación se presentan los montos totales adeudados por comercio para los años 2015 a 2019, calculada con el cambio vigente el mes de la liquidación de la Tasa. 
+
+```{r deudores,echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%' }
+ 
+  tdeudores <- deudores %>% filter(adeudadoD >10) %>% select(anio, nombreNeg, adeudado, adeudadoD, actividad)
+  datatable(tdeudores,class = 'cell-border stripe',rownames = FALSE,
+            colnames = c("Año", "Negocio", "Deuda ($)", "Deuda (USD)",  "Actividad"),
+            options = list(pageLength = 10, autoWidth = TRUE))
+
+```
+
+
+
+### Comercios ATP
+Listado de empresas beneficiarias de la postergación o reducción de las contribuciones patronales. 
+En la ciudad se registran actualmente `r length(unique(COMERCIOS$CUIT))` comercios con CUIT en el sistema de gestión tributaria. 
+
+De los mismos `r length(unique(contibuciones$razon_social)) ` han accedido al beneficio del ATP, es decir, el *`r round(length(unique(contibuciones$razon_social))/length(unique(COMERCIOS$CUIT))*100, 1)` %* del total registrado.  
+
+
+
+En el siguiente listado se encuentran todos los comercios de la ciudad que recibieron el ATP. 
+```{r activos, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+ 
+ atp <- contibuciones %>% 
+    select(sector,  razon_social, nombre=`NOMBRE DE FANTASIA`, cuit, 
+           salario_devengado_mes, ronda_atp, domicilio = `DOMICILIO COMERCIAL`) %>% unique() %>% 
+  arrange(sector,razon_social, salario_devengado_mes )
+
+  datatable(atp, class = 'cell-border stripe',rownames = FALSE,
+            colnames = c("Sector", "Razon Social", "Negocio",  "CUIT", "Mes Dev.", "Ronda ATP", "Domicilio"),
+            options = list(pageLength = 10, autoWidth = TRUE))
+
+```
+
+Fuente: Extraído del CEP-XXI en base a información de AFIP y ANSES. Listado provisorio al 21/7, sujeto a revisión.
+
+<!-- ### Salarios  -->
+<!-- Listado que corresponde a empleadores con al menos un empleado con salario complementario abonado en cuenta bancaria (por salarios devengados en abril). Incluye a quienes posteriormente devolvieron total o parcialmente el monto girado. Listado provisorio al 21/7, sujeto a revisión. Fuente: CEP-XXI en base a información de AFIP y ANSES -->
+
+<!-- ```{r salarios} -->
+<!--   table(salarios$cuit) -->
+<!--   # salarios %>%  filter(cuit=="30715857797") -->
+
+
+<!-- ``` -->

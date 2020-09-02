@@ -1,0 +1,292 @@
+---
+title: "Recursos Humanos"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    collapsed: false
+    number_sections: false
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r importarArch, message=FALSE, warning=FALSE, include=FALSE}
+  library(readr)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(lubridate)
+  library(knitr)
+  library(kableExtra)
+  library(highcharter)
+  library(rjson)
+  library(plotly)
+  library(gganimate)
+  library(stringr)
+  library(leaflet)
+  library(leaflet.extras)
+  library(sf)
+  library(tmap)
+  library(googlesheets4)
+  library(readxl)
+  library(scales) #etiqueta dolar
+  library(extrafont) #tema elegante
+  library(DT)
+
+  sep.miles <- function(x){format(x,big.mark=".")}
+  
+ { # Create Base Theme
+   theme_elegante <- function(base_size = 10, base_family = "Raleway"){
+      color.background = "#FFFFFF" # Chart Background
+      color.grid.major = "#D9D9D9" # Chart Gridlines
+      color.axis.text = "#666666" # 
+      color.axis.title = "#666666" # 
+      color.title = "#666666"
+      color.subtitle = "#666666"
+      strip.background.color = '#9999CC'
+      
+      ret <- theme_bw(base_size=base_size) +
+        
+        # Set the entire chart region to a light gray color
+        theme(panel.background=element_rect(fill=color.background, color=color.background)) +
+        theme(plot.background=element_rect(fill=color.background, color=color.background)) +
+        theme(panel.border=element_rect(color=color.background)) +
+        
+        # Format the grid
+        theme(panel.grid.major=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(panel.grid.minor=element_line(color=color.grid.major,size=.55, linetype="dotted")) +
+        theme(axis.ticks=element_blank()) +
+        
+        # Format the legend, but hide by default
+        theme(legend.position="none") +
+        theme(legend.background = element_rect(fill=color.background)) +
+        theme(legend.text = element_text(size=base_size-3,color=color.axis.title, family = base_family)) +
+        
+        theme(strip.text.x = element_text(size=base_size,color=color.background, family = base_family)) +
+        theme(strip.text.y = element_text(size=base_size,color=color.background, family = base_family)) +
+        #theme(strip.background = element_rect(fill=strip.background.color, linetype="blank")) +
+        theme(strip.background = element_rect(fill = "grey70", colour = NA)) +
+        # theme(panel.border= element_rect(fill = NA, colour = "grey70", size = rel(1)))+
+        # Set title and axis labels, and format these and tick marks
+        theme(plot.title=element_text(color=color.title, 
+                                      size=20, 
+                                      vjust=1.25, 
+                                      family=base_family, 
+                                      hjust = 0.5)) +
+        
+        theme(plot.subtitle=element_text(color=color.subtitle, size=base_size+2, family = base_family,  hjust = 0.5))  +
+        
+        theme(axis.text.x=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(axis.text.y=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(text=element_text(size=base_size, color=color.axis.text, family = base_family)) +
+        
+        theme(axis.title.x=element_text(size=base_size+2,color=color.axis.title, vjust=0, family = base_family)) +
+        theme(axis.title.y=element_text(size=base_size+2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        theme(plot.caption=element_text(size=base_size-2,color=color.axis.title, vjust=1.25, family = base_family)) +
+        
+        # Legend  
+        theme(legend.text=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.title=element_text(size=base_size,color=color.axis.text, family = base_family)) +
+        theme(legend.key=element_rect(colour = color.background, fill = color.background)) +
+        theme(legend.position="bottom", 
+              legend.box = "horizontal", 
+              legend.title = element_blank(),
+              legend.key.width = unit(.75, "cm"),
+              legend.key.height = unit(.75, "cm"),
+              legend.spacing.x = unit(.25, 'cm'),
+              legend.spacing.y = unit(.25, 'cm'),
+              legend.margin = margin(t=0, r=0, b=0, l=0, unit="cm")) +
+        
+        # Plot margins
+        theme(plot.margin = unit(c(.5, .5, .5, .5), "cm"))
+      
+      ret
+    }
+ }  
+
+  ### Costos y netos por area
+  ### Lugar de Trabajo e Imputacion
+  
+  # Promedio mensual del tipo de cambio oficial
+  
+  CAMBIO_DOLAR <- read_excel("THI/CAMBIO_DOLAR.xlsx")
+  CAMBIO_DOLAR$indice_tiempo <- gsub("-", "/", CAMBIO_DOLAR$indice_tiempo)
+  
+  CAMBIO_DOLAR$indice_tiempo <- as.Date(CAMBIO_DOLAR$indice_tiempo, "%Y/%m/%d")
+  CAMBIO_DOLAR$anio <- year(CAMBIO_DOLAR$indice_tiempo)
+  CAMBIO_DOLAR$mes <- month(CAMBIO_DOLAR$indice_tiempo)
+  
+  ##Datos del promedio mensual del cambio
+  cambio <- CAMBIO_DOLAR %>% group_by(anio, mes) %>% mutate(cambio=mean(tipo_cambio_a3500)) %>% 
+    select(anio, mes, cambio) %>% unique()
+  
+  ########################
+  ## LUGAR E IMPUTACION
+  ########################
+  lugar <- read_excel("GRH/Lugar de Trabajo e Imputacion.xlsx")
+  # liquidadoTGI$TOTAL<- as.double(liquidadoTGI$TOTAL)
+  
+  totaleslUGAR <-  lugar %>% group_by(Lugar) %>% 
+    mutate(cant=n()) %>% select(Lugar, cant) %>% unique %>% ungroup() %>% 
+    mutate(prop=cant/sum(cant))
+
+  convenios <- lugar %>% group_by(Convenio) %>% mutate(cant=n()) %>% select(Convenio, cant) %>% unique()
+  
+ # Hs y Dias por Convenio
+   hsconv <- read_excel("GRH/Hs y Dias por Convenio.xlsx")
+   convenios <- convenios %>% left_join(hsconv, by=c("Convenio"="Convenio"))
+   
+   convenios$horas <- convenios$cant*convenios$`Cant Hs mensual`
+   
+   
+   
+  #Costos y netos por area
+  costos <- read_excel("GRH/Costos y netos por area.xlsx")
+  costos$Costo <- as.double(costos$Costo)
+  costos$Neto <- as.double(costos$Neto)
+  costos$`Costo promedio` <- as.double(costos$`Costo promedio`)
+  costos$`Neto promedio` <- as.double(costos$`Neto promedio`)
+```
+
+
+## Horas según Tipo de Contratación
+
+Actualmente en el municipio se encuentran vigentes 10 tipos de Convenios diferentes bajo los cuales se encuadran los Recursos Humanos.
+Estos son:
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Gráfico
+```{r graf, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  tipos <- convenios %>% select(Convenio, cant)
+  g <- tipos %>%
+    ggplot(aes(reorder(Convenio, cant, order = F ), cant, text=paste0(Convenio, ": Cant. ", cant ))) +
+    geom_col(fill = "#67a9cf")+
+    coord_flip() +
+    theme(panel.grid.major.x = element_blank())+
+    scale_y_continuous(labels = scales::comma) +
+    geom_text(aes(label= round(cant,0), y= round(cant, 0) + 1), 
+              hjust=1.1, color="black", size= 3)+
+    labs(title = "Año 2020 - Cant. de Personas según Convenio", 
+         x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+
+
+```
+
+
+
+#### Tabla
+```{r tabla, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+  datatable(tipos, class = 'cell-border stripe', rownames = FALSE,
+            colnames = c("Convenio",  "Cantidad"),
+            options = list(pageLength = 10, autoWidth = T))
+
+```
+
+
+### Carga horaria
+
+Si normalizamos por la carga horaria asignada a cada convenio obtenemos los porcentajes reales de la distribución del personal. 
+
+Como se observa el 59% de la carga horaria de los recursos humanos del municipio pertenecen a la Planta Permanente, seguido por los Contratados (6 Hs) - ORD 9173 que representan el 30%.
+
+La planta política en carga horaria asignada representa sólo el 5% del total.
+
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Gráfico
+```{r horasConv, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+
+   convenios$parents <- "Horas"
+   plot_ly(data = convenios,
+        type= "treemap",
+        values = ~horas,
+        labels= ~Convenio,
+        parents=  ~parents,
+        domain = list(column=0),
+        name = "Horas",
+        textinfo="label+value+percent parent") %>%
+  layout(title = "MCU - Distribución de Hs. por convenios")
+   
+```
+
+
+#### Tabla
+```{r ThorasConv, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+    tconvenios <- convenios %>% select(Convenio, cant, `Cant Hs mensual`, `Cant dias x mes`, horas)
+
+   datatable(tconvenios, class = 'cell-border stripe', rownames = FALSE,
+            colnames = c("Convenio","Personas",  "Hs. x Mes", "Días x Mes", "Total Hs."),
+            options = list(pageLength = 10, autoWidth = T))
+
+```
+
+
+### Costos por Area
+
+En la actualidad el costo total del personal municipal es de  `r paste0("$ ", sep.miles(round(sum(costos$Costo), 1)))` mensuales.
+A continuación se analizarán las areas en base al costo total en personal de las mismas.
+
+#### Ranking de Areas por Costo Total
+```{r costoA, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  # lugar$Lugar
+  tLugares<- as.data.frame(table(lugar$`Imputacion Detalle`))
+  tLugares <- tLugares %>% left_join(costos, by = c("Var1"="Area")) %>% 
+    select(Area=Var1, Cant=Freq, Costo=Costo, Neto, CostoProm=`Costo promedio`, NetoProm=`Neto promedio`)
+  
+  top10 <- tLugares %>% arrange(desc(Costo)) %>%  top_n(20, Costo) 
+  
+   g <- top10 %>% arrange(desc(Costo))  %>% 
+      ggplot(aes(reorder(Area, Costo,order = F ), Costo, text=paste0(Area, ": $ ", Costo))) +
+      geom_col(fill = "#67a9cf")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= sep.miles(round(Costo, 0)), y= round(Costo, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Areas de mayor costo en RRHH para el Municipio", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
+
+
+
+#### Ranking por Costo Promedio
+En el gráfico a continuación se muestran las áreas de mayor costo promedio por persona
+
+```{r costoPromA, echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, paged.print=FALSE, out.width='100%'}
+  top10 <- tLugares %>% ungroup() %>%  arrange(desc(CostoProm)) %>%  top_n(20, CostoProm) 
+  top10$aliasArea <- str_to_title(top10$Area)
+  top10$aliasArea <- gsub("Coordinacion", "Coord.", top10$aliasArea)
+  top10$aliasArea <- gsub("General", "Gral.", top10$aliasArea)
+  top10$aliasArea <- gsub(" De ", " de ", top10$aliasArea)
+  top10$aliasArea <- gsub("Departamento", "Dpto.", top10$aliasArea)
+  top10$aliasArea <- gsub(" Y ", " y ", top10$aliasArea)
+  top10$aliasArea <- gsub("Evaluacion Politicas Publicas", "Eval. Pol. Púb.", top10$aliasArea)
+  
+   g <- top10 %>% arrange(desc(CostoProm))  %>% 
+      ggplot(aes(reorder(aliasArea, CostoProm,order = F ), CostoProm, text=paste0(Area, ": $ ", CostoProm))) +
+      geom_col(fill = "#fc6721")+
+      coord_flip() +
+      theme(panel.grid.major.x = element_blank())+
+      scale_y_continuous(labels = scales::comma) +
+      geom_text(aes(label= sep.miles(round(CostoProm, 0)), y= round(CostoProm, 0) + 1), 
+              hjust=1.1, color="black", size= 2.5)+
+     labs(title = "Areas de mayor costo Promedio por Persona", 
+          x = "", y = "", fill = NULL) 
+
+   ggplotly(g, tooltip = c("text"))
+   
+```
