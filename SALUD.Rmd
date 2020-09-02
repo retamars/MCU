@@ -39,12 +39,12 @@ library(tm)
 library(dygraphs)
 
 # Cargo los archivos exportados de COLMENA
-  asistencia <- read_excel("SALUD/CAPS/AsistPublica.xlsx")
-  cic <-  read_excel("SALUD/CAPS/CIC.xlsx")
-  concepcion <- read_excel("SALUD/CAPS/LaConcepcion.xlsx")
-  villa <- read_excel("SALUD/CAPS/VillaLasLomas.xlsx")
-  rocamora <- read_excel("SALUD/CAPS/Rocamora.xlsx")
-  minata <- read_excel("SALUD/CAPS/Minatta.xlsx")
+  asistencia <- read_excel("SALUD_d/CAPS/AsistPublica.xlsx")
+  cic <-  read_excel("SALUD_d/CAPS/CIC.xlsx")
+  concepcion <- read_excel("SALUD_d/CAPS/LaConcepcion.xlsx")
+  villa <- read_excel("SALUD_d/CAPS/VillaLasLomas.xlsx")
+  rocamora <- read_excel("SALUD_d/CAPS/Rocamora.xlsx")
+  minata <- read_excel("SALUD_d/CAPS/Minatta.xlsx")
 
  tcic <- data.frame("CIC",  table(cic$Especialidad))
   tconce <- data.frame("La Concepcion",  table(concepcion$Especialidad))
