@@ -1,0 +1,622 @@
+---
+title: "Centros de Salud"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    collapsed: false
+    number_sections: false
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r importarArch, message=FALSE, warning=FALSE, include=FALSE}
+
+# devtools::install_github("gaospecial/wordcloud2")
+library(shiny)
+library(dplyr)
+library(DT)
+library(ggplot2)
+library(shinydashboard)
+library(plotly)
+library("readxl")
+library(Rcpp)
+library(lubridate)
+library("forcats")
+library("scales")
+# install.packages("wordcloud")
+library(wordcloud)
+# install.packages("RColorBrewer")
+library(RColorBrewer)
+# install.packages("wordcloud2)
+library(wordcloud2)
+# install.packages("tm")
+library(tm)
+library(dygraphs)
+
+# Cargo los archivos exportados de COLMENA
+  asistencia <- read_excel("SALUD/CAPS/AsistPublica.xlsx")
+  cic <-  read_excel("SALUD/CAPS/CIC.xlsx")
+  concepcion <- read_excel("SALUD/CAPS/LaConcepcion.xlsx")
+  villa <- read_excel("SALUD/CAPS/VillaLasLomas.xlsx")
+  rocamora <- read_excel("SALUD/CAPS/Rocamora.xlsx")
+  minata <- read_excel("SALUD/CAPS/Minatta.xlsx")
+
+ tcic <- data.frame("CIC",  table(cic$Especialidad))
+  tconce <- data.frame("La Concepcion",  table(concepcion$Especialidad))
+  tvilla <- data.frame("Villa Las Lomas",  table(villa$Especialidad))
+  troca <- data.frame("Rocamora",  table(rocamora$Especialidad))
+  tmina <- data.frame("Minatta",  table(minata$Especialidad))
+  names(tcic)<- c("CAPS", "Especialidad", "Prestaciones")
+  names(tconce)<- c("CAPS", "Especialidad", "Prestaciones")
+  names(tvilla)<- c("CAPS", "Especialidad", "Prestaciones")
+  names(troca)<- c("CAPS", "Especialidad", "Prestaciones")
+  names(tmina)<- c("CAPS", "Especialidad", "Prestaciones")
+  prestaciones <- rbind(tcic, tconce, tvilla, troca, tmina)
+  
+```
+
+## Prestaciones por CAPS
+```{r presta, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+  t<-prestaciones %>%group_by(CAPS) %>%  mutate(Prestaciones=sum(Prestaciones)) %>% 
+  select(CAPS, Prestaciones) %>% unique()
+  t$parents <- "Prestaciones"
+  plot_ly(data = t,
+          type= "treemap",
+          values = ~Prestaciones,
+          labels= ~CAPS,
+          parents=  ~parents,
+          domain = list(column=0),
+          name = "Prestaciones",
+          textinfo="label+value+percent parent") %>%
+    layout(title = paste("MCU - Distribución de Prestaciones por CAPS"))
+  
+```
+
+
+## Prestaciones por Especialidad
+Los datos exportados por el sistema de administración de Historias Clínicas, COLMENA 
+
+Se analiza inicialmente la cantidad total de prestaciones realizadas en Consultorios según la Especialidad
+
+```{r prestaCAPS, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ ######## Cant. de prestaciones por CAPS y especialidad
+  p<-prestaciones %>%
+  ggplot(aes(x = CAPS, y =   fct_reorder(Especialidad,Prestaciones), fill = Prestaciones), 
+         text=paste0("Especialidad:", Especialidad, '\n', "Prestaciones: ", Prestaciones)) +
+    geom_tile(colour="gray80", size=0.2) +
+    geom_text(aes(label=Prestaciones, color = Prestaciones > .7)) +
+    scale_color_manual(guide = FALSE, values = c("gray30", "gray90")) +
+    scale_fill_distiller(palette = "YlGnBu", direction = 1, na.value = "white") +
+    labs(title = paste("CAPS C. del Uruguay"),
+         subtitle = paste0("Cantidad de Prestaciones totales por Especialidad"),
+         caption = "Fuente: COLMENA",
+         x = "2020") +
+    theme(axis.title.y=element_blank(), legend.position = "none")
+
+  ggplotly(p, tooltip = c("text"))
+  
+```
+
+
+## CAPS
+
+### CIC
+A continuación se analizarán las cantidades de prestaciones realizadas en el CIC en base a la Especialidad y el total mensual
+
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Por Mes y Especialidad
+```{r CIC1,  echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ cap_esp <- cic %>% mutate(mes=month(`Fecha y Hora`)) %>% group_by(mes, Especialidad) %>% mutate(Prestaciones=n()) %>%
+    select(mes, Especialidad, Prestaciones) %>% unique()
+
+   # Por Mes y Especialidad
+  cap_esp %>% filter(!is.na(Especialidad)) %>%
+  ggplot(aes(y=Prestaciones, x=mes, fill=Especialidad)) +
+    geom_bar(position="dodge", stat="identity") +
+    # ggtitle("Prestaciones por Especialidad") +
+    labs(title = paste("CAPS CIC"),
+         subtitle = paste0("Cantidad de Prestaciones totales por mes y Especialidad"),
+         caption = "Fuente: COLMENA",
+         x = "2020") +
+    facet_wrap(~Especialidad) +
+    theme(legend.position="none") +
+    xlab("")
+
+```
+
+
+
+#### Por Mes 
+```{r CIC2, echo=FALSE, message=FALSE, warning=FALSE}
+# # Por Mes
+#   cap_esp %>% #filter(!is.na(Especialidad)) %>%
+#     ggplot(aes(#fill=Especialidad, 
+#       y=Prestaciones, x=mes)) +
+#     geom_bar(position="dodge", stat="identity")
+
+p<- cap_esp %>% group_by(mes) %>% mutate(Prestaciones=sum(Prestaciones)) %>% select(mes, Prestaciones) %>% unique()
+  p$mesT <- if_else(p$mes==1, "Enero", if_else(p$mes==2, "Febrero", if_else(p$mes==3, "Marzo", if_else(p$mes==4, "Abril", if_else(p$mes==5, "Mayo", if_else(p$mes==6, "Junio", if_else(p$mes==7, "Julio", if_else(p$mes==8, "Agosto", ""))))))))
+p <- p %>% select(mesT, Prestaciones)
+dygraph(p) %>%
+  dyOptions( fillGraph=TRUE )
+
+
+```
+
+
+
+
+### HC CIC
+La siguiente nube de palabras resulta de la extraccion de los terminos más comunes en las Historias Clinicas de los usuarios que se atienden en el CAPS CIC
+
+```{r CIC3, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  text <-  cic$`Diagnostico / Evolucion / Tratamiento`
+  # Create a corpus
+  docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+
+  wordcloud2(data=df, size=1.6, color='random-dark')
+
+```  
+
+
+
+
+
+### La Concepción
+A continuación se analizarán las cantidades de prestaciones realizadas en el CAPS La Concepción en base a la Especialidad y el total mensual
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Por Mes y Especialidad
+```{r LC1,  echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ cap_esp <- concepcion %>% mutate(mes=month(`Fecha y Hora`)) %>% group_by(mes, Especialidad) %>% mutate(Prestaciones=n()) %>%
+    select(mes, Especialidad, Prestaciones) %>% unique()
+
+   # Por Mes y Especialidad
+  cap_esp %>% filter(!is.na(Especialidad)) %>%
+  ggplot(aes(y=Prestaciones, x=mes, fill=Especialidad)) +
+    geom_bar(position="dodge", stat="identity") +
+    # ggtitle("Prestaciones por Especialidad") +
+    labs(title = paste("CAPS La Concepción"),
+         subtitle = paste0("Cantidad de Prestaciones totales por mes y Especialidad"),
+         caption = "Fuente: COLMENA",
+         x = "2020") +
+    facet_wrap(~Especialidad) +
+    theme(legend.position="none") +
+    xlab("")
+
+```
+
+
+
+#### Por Mes 
+```{r LC2, echo=FALSE, message=FALSE, warning=FALSE}
+
+p<- cap_esp %>% group_by(mes) %>% mutate(Prestaciones=sum(Prestaciones)) %>% select(mes, Prestaciones) %>% unique()
+  p$mesT <- if_else(p$mes==1, "Enero", if_else(p$mes==2, "Febrero", if_else(p$mes==3, "Marzo", if_else(p$mes==4, "Abril", if_else(p$mes==5, "Mayo", if_else(p$mes==6, "Junio", if_else(p$mes==7, "Julio", if_else(p$mes==8, "Agosto", ""))))))))
+p <- p %>% select(mesT, Prestaciones)
+dygraph(p) %>%
+  dyOptions( fillGraph=TRUE )
+
+
+```
+
+
+### HC La Concepción
+La siguiente nube de palabras resulta de la extraccion de los terminos más comunes en las Historias Clinicas de los usuarios que se atienden en el CAPS La Concepción
+
+```{r LC3, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  text <-  concepcion$`Diagnostico / Evolucion / Tratamiento`
+  # Create a corpus
+  docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+  wordcloud2(data=df, size=1.6, color='random-dark')
+``` 
+
+
+
+
+
+### Rocamora
+A continuación se analizarán las cantidades de prestaciones realizadas en el CAPS Rocamora en base a la Especialidad y el total mensual
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Por Mes y Especialidad
+```{r R1,  echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ cap_esp <- rocamora %>% mutate(mes=month(`Fecha y Hora`)) %>% group_by(mes, Especialidad) %>% mutate(Prestaciones=n()) %>%
+    select(mes, Especialidad, Prestaciones) %>% unique()
+
+   # Por Mes y Especialidad
+  cap_esp %>% filter(!is.na(Especialidad)) %>%
+  ggplot(aes(y=Prestaciones, x=mes, fill=Especialidad)) +
+    geom_bar(position="dodge", stat="identity") +
+    # ggtitle("Prestaciones por Especialidad") +
+    labs(title = paste("CAPS Rocamora"),
+         subtitle = paste0("Cantidad de Prestaciones totales por mes y Especialidad"),
+         caption = "Fuente: COLMENA",
+         x = "2020") +
+    facet_wrap(~Especialidad) +
+    theme(legend.position="none") +
+    xlab("")
+
+```
+
+
+
+#### Por Mes 
+```{r R2, echo=FALSE, message=FALSE, warning=FALSE}
+
+p<- cap_esp %>% group_by(mes) %>% mutate(Prestaciones=sum(Prestaciones)) %>% select(mes, Prestaciones) %>% unique()
+  p$mesT <- if_else(p$mes==1, "Enero", if_else(p$mes==2, "Febrero", if_else(p$mes==3, "Marzo", if_else(p$mes==4, "Abril", if_else(p$mes==5, "Mayo", if_else(p$mes==6, "Junio", if_else(p$mes==7, "Julio", if_else(p$mes==8, "Agosto", ""))))))))
+p <- p %>% select(mesT, Prestaciones)
+dygraph(p) %>%
+  dyOptions( fillGraph=TRUE )
+  
+```  
+
+
+
+### HC Rocamora
+La siguiente nube de palabras resulta de la extraccion de los terminos más comunes en las Historias Clinicas de los usuarios que se atienden en el CAPS La Concepción
+
+```{r R3, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  text <-  rocamora$`Diagnostico / Evolucion / Tratamiento`
+  # Create a corpus
+  docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+  wordcloud2(data=df, size=1.6, color='random-dark')
+``` 
+
+
+
+
+
+### Villa las Lomas
+A continuación se analizarán las cantidades de prestaciones realizadas en el CAPS Villa las Lomas en base a la Especialidad y el total mensual
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Por Mes y Especialidad
+```{r VL1,  echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ cap_esp <- villa %>% mutate(mes=month(`Fecha y Hora`)) %>% group_by(mes, Especialidad) %>% mutate(Prestaciones=n()) %>%
+    select(mes, Especialidad, Prestaciones) %>% unique()
+
+   # Por Mes y Especialidad
+  cap_esp %>% filter(!is.na(Especialidad)) %>%
+  ggplot(aes(y=Prestaciones, x=mes, fill=Especialidad)) +
+    geom_bar(position="dodge", stat="identity") +
+    # ggtitle("Prestaciones por Especialidad") +
+    labs(title = paste("CAPS Villa las Lomas"),
+         subtitle = paste0("Cantidad de Prestaciones totales por mes y Especialidad"),
+         caption = "Fuente: COLMENA",
+         x = "2020") +
+    facet_wrap(~Especialidad) +
+    theme(legend.position="none") +
+    xlab("")
+
+```
+
+
+
+#### Por Mes 
+```{r VL2, echo=FALSE, message=FALSE, warning=FALSE}
+
+p<- cap_esp %>% group_by(mes) %>% mutate(Prestaciones=sum(Prestaciones)) %>% select(mes, Prestaciones) %>% unique()
+  p$mesT <- if_else(p$mes==1, "Enero", if_else(p$mes==2, "Febrero", if_else(p$mes==3, "Marzo", if_else(p$mes==4, "Abril", if_else(p$mes==5, "Mayo", if_else(p$mes==6, "Junio", if_else(p$mes==7, "Julio", if_else(p$mes==8, "Agosto", ""))))))))
+p <- p %>% select(mesT, Prestaciones)
+dygraph(p) %>%
+  dyOptions( fillGraph=TRUE )
+  
+```  
+
+
+
+
+
+### HC Villa las Lomas
+La siguiente nube de palabras resulta de la extraccion de los terminos más comunes en las Historias Clinicas de los usuarios que se atienden en el CAPS La Concepción
+
+```{r VL3, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  text <-  villa$`Diagnostico / Evolucion / Tratamiento`
+  # Create a corpus
+  docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+  wordcloud2(data=df, size=1.6, color='random-dark')
+  
+```  
+
+
+
+
+
+### Dr. Minatta
+A continuación se analizarán las cantidades de prestaciones realizadas en el CAPS Dr. Minatta en base a la Especialidad y el total mensual
+
+###  {.tabset  .tabset-fade .tabset-pills}
+#### Por Mes y Especialidad
+```{r M1,  echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ cap_esp <- minata %>% mutate(mes=month(`Fecha y Hora`)) %>% group_by(mes, Especialidad) %>% mutate(Prestaciones=n()) %>%
+    select(mes, Especialidad, Prestaciones) %>% unique()
+
+   # Por Mes y Especialidad
+  cap_esp %>% filter(!is.na(Especialidad)) %>%
+  ggplot(aes(y=Prestaciones, x=mes, fill=Especialidad)) +
+    geom_bar(position="dodge", stat="identity") +
+    # ggtitle("Prestaciones por Especialidad") +
+    labs(title = paste("CAPS Dr. Minatta"),
+         subtitle = paste0("Cantidad de Prestaciones totales por mes y Especialidad"),
+         caption = "Fuente: COLMENA",
+         x = "2020") +
+    facet_wrap(~Especialidad) +
+    theme(legend.position="none") +
+    xlab("")
+
+```
+
+
+
+#### Por Mes 
+```{r M2, echo=FALSE, message=FALSE, warning=FALSE}
+
+p<- cap_esp %>% group_by(mes) %>% mutate(Prestaciones=sum(Prestaciones)) %>% select(mes, Prestaciones) %>% unique()
+  p$mesT <- if_else(p$mes==1, "Enero", if_else(p$mes==2, "Febrero", if_else(p$mes==3, "Marzo", if_else(p$mes==4, "Abril", if_else(p$mes==5, "Mayo", if_else(p$mes==6, "Junio", if_else(p$mes==7, "Julio", if_else(p$mes==8, "Agosto", ""))))))))
+p <- p %>% select(mesT, Prestaciones)
+dygraph(p) %>%
+  dyOptions( fillGraph=TRUE )
+  
+```  
+
+
+
+
+### HC Dr. Minatta
+La siguiente nube de palabras resulta de la extraccion de los terminos más comunes en las Historias Clinicas de los usuarios que se atienden en el CAPS Dr. Minatta
+
+```{r M3, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  text <-  minata$`Diagnostico / Evolucion / Tratamiento`
+  # Create a corpus
+ docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+
+  wordcloud2(data=df, size=1.6, color='random-dark')
+  
+```   
+
+
+
+
+
+## HC por Especialidad
+La siguiente nube de palabras resulta de la extraccion de los terminos más comunes en las Historias Clinicas de los usuarios que se atienden en todos los CAPS discriminados por especialidad 
+
+
+#### Generalista
+```{r NPESP1, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  
+  generalista1 <- minata %>% filter(Especialidad=="generalista") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista2 <- rocamora %>% filter(Especialidad=="generalista") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista3 <- villa %>% filter(Especialidad=="generalista") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista4 <- concepcion %>% filter(Especialidad=="generalista") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista5 <- cic %>% filter(Especialidad=="generalista") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`)   
+  
+  text <- rbind(generalista1, generalista2, generalista3, generalista4, generalista5)
+  # Create a corpus
+ docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+
+  wordcloud2(data=df, size=1.6, color='random-dark')
+  
+```   
+
+
+
+#### Ginecología
+```{r NPESP2, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  
+  generalista1 <- minata %>% filter(Especialidad=="ginecologia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista2 <- rocamora %>% filter(Especialidad=="ginecologia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista3 <- villa %>% filter(Especialidad=="ginecologia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista4 <- concepcion %>% filter(Especialidad=="ginecologia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista5 <- cic %>% filter(Especialidad=="ginecologia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`)   
+  
+  text <- rbind(generalista1, generalista2, generalista3, generalista4, generalista5)
+  # Create a corpus
+ docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+
+  wordcloud2(data=df, size=1.6, color='random-dark')
+  
+```   
+
+
+
+
+#### Obstetricia
+```{r NPESP3, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  
+  generalista1 <- minata %>% filter(Especialidad=="obstetricia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista2 <- rocamora %>% filter(Especialidad=="obstetricia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista3 <- villa %>% filter(Especialidad=="obstetricia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista4 <- concepcion %>% filter(Especialidad=="obstetricia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista5 <- cic %>% filter(Especialidad=="obstetricia") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`)   
+  
+  text <- rbind(generalista1, generalista2, generalista3, generalista4, generalista5)
+  # Create a corpus
+ docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+
+  wordcloud2(data=df, size=1.6, color='random-dark')
+  
+```   
+
+
+
+
+#### Pediatría
+```{r NPESP4, echo=FALSE, message=FALSE, warning=FALSE}
+  ## Nube de palabras de las HC
+  #Create a vector containing only the text
+  
+  generalista1 <- minata %>% filter(Especialidad=="pediatria") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista2 <- rocamora %>% filter(Especialidad=="pediatria") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista3 <- villa %>% filter(Especialidad=="pediatria") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista4 <- concepcion %>% filter(Especialidad=="pediatria") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`) 
+  generalista5 <- cic %>% filter(Especialidad=="pediatria") %>% 
+    select(text=`Diagnostico / Evolucion / Tratamiento`)   
+  
+  text <- rbind(generalista1, generalista2, generalista3, generalista4, generalista5)
+  # Create a corpus
+ docs <- Corpus(VectorSource(text))
+
+  docs <- docs %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation) %>%
+    tm_map(stripWhitespace)
+  docs <- tm_map(docs, content_transformer(tolower))
+  docs <- tm_map(docs, removeWords, stopwords("spanish"))
+
+  ##Create a document-term-matrix
+  dtm <- TermDocumentMatrix(docs)
+  matrix <- as.matrix(dtm)
+  words <- sort(rowSums(matrix),decreasing=TRUE)
+  df <- data.frame(word = names(words),freq=words)
+
+  wordcloud2(data=df, size=1.6, color='random-dark')
+  
+```   

@@ -1,0 +1,15 @@
+name: "MCU - Datos"
+theme: jekyll-theme-cayman
+navbar:
+  title: "MCU - Datos"
+  left:
+    - text: "Inicio"
+      href: index.html
+    - text: "GAT"
+      href: GAT.html
+    - text: "GRH"
+      href: GRH.html
+    - text: "SALUD" 
+      href: SALUD.html
+output_dir: "docs"
+exclude: "data"

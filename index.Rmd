@@ -1,0 +1,67 @@
+---
+title: "MCU -Datos"
+output: html_document
+---
+
+<style type="text/css">
+.title {
+  display: none;
+}
+
+#getting-started img {
+  margin-right: 10px;
+}
+
+</style>
+
+<div class="row" style="padding-top: 30px;">
+<div class="col-sm-6">
+
+
+# **Datos de MCU**
+
+Este trabajo fue realizado con el objetivo de aportar información sobre los distintos aspectos del Municipio de Concepción del Uruguay.
+
+## Datos
+
+Los datos son extraídos de los sistemas de gestión 
+1. GAT: Sistema de Administrativa Tributaria
+
+2. GRH: Sistema de Administración de Recursos Humanos
+
+3. GAF: Sistema de Adminsitración Financiera
+
+<!-- a nivel mundial son extraídos del repositorio público de la Universidad Johns Hopkins, quienes recopilan diariamente los datos brindados por la Organización Mundial de la Salud. [https://github.com/CSSEGISandData/COVID-19](https://github.com/CSSEGISandData/COVID-19) -->
+
+<!-- 2. Los datos a nivel Nacional son extraídos de los [Reportes Diarios](https://www.argentina.gob.ar/coronavirus/informe-diario) del Ministerio de Salud de la República Argentina. -->
+
+<!-- 3. Los datos a nivel departamental son recopilados de los informes brindados por los Ministerios de Salud provinciales. -->
+
+
+## Recomendaciones
+
+<!-- [Recomendaciones del Ministerio de Salud de Argentina](https://www.argentina.gob.ar/coronavirus/cuidarnos) -->
+
+
+
+
+</div>
+<div class="col-sm-6">
+
+### [Municipalidad de Concepción del Uruguay](https://cdeluruguay.gob.ar/)
+
+<a href = "https://cdeluruguay.gob.ar">
+![](logo.png)
+</a>
+</div>
+
+
+
+
+
+
+<!-- ## Recomendaciones -->
+
+<!-- [Recomendaciones del Ministerio de Salud de Argentina](https://www.argentina.gob.ar/coronavirus/cuidarnos) -->
+
+
